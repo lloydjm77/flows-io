@@ -1,13 +1,11 @@
 package fileutil
 
 import (
-	"os"
 	"strings"
 	"testing"
 )
 
 func TestDetectFileType(t *testing.T) {
-	home := os.Getenv("HOME")
 	type args struct {
 		path string
 	}
@@ -16,7 +14,9 @@ func TestDetectFileType(t *testing.T) {
 		args args
 		want string
 	}{
-		{name: "should_be_text_file", args: args{path: home + "/software-development/strategy-generator/.gitignore"}, want: "text/plain"},
+		{name: "should_be_xml_file", args: args{path: "../test-files/pom.xml"}, want: "text/xml"},
+		{name: "should_be_java_text_file", args: args{path: "../test-files/StrategyGeneratorApplication.java"}, want: "text/plain"},
+		{name: "should_generate_error", args: args{path: "../test-files/does-not-exist.txt"}, want: "invalid argument"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

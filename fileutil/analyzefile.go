@@ -3,27 +3,21 @@ package fileutil
 import (
 	"bufio"
 	"os"
-	"sync"
 
 	"github.com/lloydjm77/flows-io/analyzer"
 )
 
 var analyzers = []analyzer.StringAnalyzer{analyzer.HTTPStringAnalyzer{}}
 
-func AnalyzeFile(path string, results chan analyzer.AnalysisResult, wg *sync.WaitGroup, inprogress chan int) {
-	defer wg.Done()
-	defer func(inprogressLocal chan int) {
-		<-inprogressLocal
-	}(inprogress)
-
+// AnalyzeFile analyzes a file at the supplied location. A slice of
+// analyzer.AnalysisResult structs is returned for matching elements.
+func AnalyzeFile(path string) []analyzer.AnalysisResult {
 	file, _ := os.Open(path)
 	defer file.Close()
 
-	inprogress <- 1
-
 	fileScanner := bufio.NewScanner(file)
 
-	// fmt.Printf("Analyzing file: %v\n", path)
+	analysisResults := []analyzer.AnalysisResult{}
 
 	for fileScanner.Scan() {
 		line := fileScanner.Text()
@@ -33,7 +27,9 @@ func AnalyzeFile(path string, results chan analyzer.AnalysisResult, wg *sync.Wai
 				continue
 			}
 			analysisResult.Path = path
-			results <- analysisResult
+			analysisResults = append(analysisResults, analysisResult)
 		}
 	}
+
+	return analysisResults
 }

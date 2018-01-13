@@ -6,6 +6,7 @@ import (
 	"os"
 )
 
+// DetectFileType determines and returns the MIME type for the supplied file.
 func DetectFileType(path string) string {
 	file, _ := os.Open(path)
 

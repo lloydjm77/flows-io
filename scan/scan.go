@@ -1,69 +1,76 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
-	"sync"
+	"runtime"
 	"time"
 
 	"github.com/lloydjm77/flows-io/analyzer"
+	"github.com/lloydjm77/flows-io/worker"
 
 	"github.com/lloydjm77/flows-io/fileutil"
 )
 
-func main() {
+func run() {
 	start := time.Now()
 
-	results := make(chan analyzer.AnalysisResult)
-	spawnRoutines(results)
-
-	elapsed := time.Since(start)
-	fmt.Printf("\nTime elapsed: %s.\n", elapsed)
-}
-
-func spawnRoutines(results chan analyzer.AnalysisResult) {
 	args := os.Args[1:]
 	files := fileutil.FindSourceFiles(args[0])
-	var wg sync.WaitGroup
 
-	filesAnalyzed := len(files)
-	wg.Add(filesAnalyzed)
-
-	inprogress := make(chan int, 10)
+	results := []analyzer.AnalysisResult{}
 
 	for _, file := range files {
-		go fileutil.AnalyzeFile(file, results, &wg, inprogress)
+		results = append(results, fileutil.AnalyzeFile(file)...)
 	}
 
-	go func() {
-		fmt.Println("waiting")
-		wg.Wait()
-		fmt.Println("closing")
-		close(results)
-	}()
-
-	count := 0
-	for result := range results {
-		fmt.Printf("Type: %v, Path: %v, Value: %v\n", result.Type, result.Path, result.Value)
-		count++
+	for _, result := range results {
+		fmt.Printf("AnalysisResult: %v\n", result)
 	}
-	// time.Sleep(10 * time.Second)
-	// var a []analyzer.AnalysisResult
 
-	// for i := 0; i < filesAnalyzed; i++ {
-	// 	select {
-	// 	case result := <-results:
-	// 		fmt.Printf("\nFound %v potential matches.\n", len(a))
-	// 		fmt.Printf("receiving %v\n", result)
-	// 		a = append(a, result)
-	// 	}
-	// }
+	elapsed := time.Since(start)
+	fmt.Printf("\nFound %v potential matches across %v files in %s.\n", len(results)+1, len(files)+1, elapsed)
+}
 
-	// for _, result := range a {
-	// 	fmt.Printf("Type: %v, Path: %v, Value: %v\n", result.Type, result.Path, result.Value)
-	// }
+func runConcurrent(maxConcurrent int) {
+	start := time.Now()
 
-	fmt.Printf("\nAnalyzed %v files.", filesAnalyzed)
-	// fmt.Printf("\nFound %v potential matches.\n", len(a))
-	fmt.Printf("\nFound %v potential matches.\n", count)
+	args := os.Args[1:]
+	files := fileutil.FindSourceFiles(args[0])
+
+	tasks := []worker.Task{}
+
+	for _, file := range files {
+		tasks = append(tasks, createTask(file))
+	}
+
+	// Use context to cancel goroutines
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	resultChannel := worker.PerformTasks(ctx, tasks, maxConcurrent)
+
+	// Print value from first goroutine and cancel others
+	count := 1
+	for result := range resultChannel {
+		analysisResults := result.([]analyzer.AnalysisResult)
+		for _, analysisResult := range analysisResults {
+			fmt.Printf("AnalysisResult: %v\n", analysisResult)
+			count++
+		}
+	}
+
+	elapsed := time.Since(start)
+	fmt.Printf("\nFound %v potential matches across %v files in %s.\n", count, len(files)+1, elapsed)
+}
+
+func createTask(file string) worker.Task {
+	return func() interface{} {
+		return fileutil.AnalyzeFile(file)
+	}
+}
+
+func main() {
+	runConcurrent(runtime.NumCPU() / 2)
 }

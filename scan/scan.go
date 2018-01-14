@@ -46,10 +46,10 @@ func runConcurrent(maxConcurrent int) {
 	}
 
 	// Use context to cancel goroutines
-	ctx, cancel := context.WithCancel(context.Background())
+	context, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	resultChannel := worker.PerformTasks(ctx, tasks, maxConcurrent)
+	resultChannel := worker.PerformTasks(&worker.TaskContext{Context: context, MaxConcurrent: maxConcurrent}, tasks)
 
 	// Print value from first goroutine and cancel others
 	count := 1

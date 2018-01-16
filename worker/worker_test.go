@@ -2,8 +2,12 @@ package worker
 
 import (
 	"context"
+	"fmt"
 	"reflect"
+	"sync"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestPerformTasks(t *testing.T) {
@@ -53,42 +57,23 @@ func Test_newWorker(t *testing.T) {
 			// Execute and get output channel.
 			got := newWorker(&tt.args.workerContext)
 
+			assert.Len(t, buffer, 0)
 			if tt.cancel {
 				cancel()
-				if len(got) == 0 && len(buffer) == 0 {
-					// Do nothing.
-				} else {
-					t.Error("newWorker() should have been canceled")
-				}
+				assert.Len(t, got, 0)
 			} else {
-				// Receive value from channel to assert.
-				val := <-got
-				if reflect.DeepEqual(val, tt.want) && len(buffer) == 0 {
-					// Do nothing.
-				} else {
-					t.Errorf("newWorker() = %v, want %v", val, tt.want)
-				}
+				assert.ObjectsAreEqual(tt.want, <-got)
 			}
 		})
 	}
 }
 
-func Test_runTask(t *testing.T) {
-	type args struct {
-		workerContext workerContext
-		out           chan interface{}
-	}
-	tests := []struct {
-		name string
-		args args
-	}{
-	// TODO: Add test cases.
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			runTask(&tt.args.workerContext, tt.args.out)
-		})
-	}
+func Test_newWaitGroup(t *testing.T) {
+	t.Run("should_return_a_new_wait_group", func(t *testing.T) {
+		wg := newWaitGroup()
+		assert.IsType(t, new(sync.WaitGroup), wg)
+		assert.NotNil(t, wg)
+	})
 }
 
 func Test_executeTask(t *testing.T) {
@@ -109,9 +94,8 @@ func Test_executeTask(t *testing.T) {
 		tt.args.buffer = buffer
 		t.Run(tt.name, func(t *testing.T) {
 			got := executeTask(tt.args.task, tt.args.buffer)
-			if !reflect.DeepEqual(got, tt.want) || len(buffer) != 0 {
-				t.Errorf("executeTask() = %v, want %v", got, tt.want)
-			}
+			assert.ObjectsAreEqual(tt.want, got)
+			assert.Len(t, buffer, 0)
 		})
 		close(buffer)
 	}
@@ -120,20 +104,103 @@ func Test_executeTask(t *testing.T) {
 func Test_merge(t *testing.T) {
 	type args struct {
 		ctx     context.Context
-		workers []chan interface{}
+		results [][]interface{}
 	}
 	tests := []struct {
-		name string
-		args args
-		want chan interface{}
+		name   string
+		args   args
+		cancel bool
+		want   []interface{}
 	}{
-	// TODO: Add test cases.
+		{
+			name: "should_merge_results",
+			args: args{
+				results: [][]interface{}{
+					[]interface{}{1, 2}, []interface{}{3, 4},
+				}},
+			cancel: false,
+			want:   []interface{}{1, 2, 3, 4},
+		},
+		{
+			name: "should_cancel_and_return",
+			args: args{
+				results: [][]interface{}{
+					[]interface{}{1, 2}, []interface{}{3, 4},
+				}},
+			cancel: true,
+			want:   []interface{}{},
+		},
 	}
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := merge(tt.args.ctx, tt.args.workers); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("merge() = %v, want %v", got, tt.want)
+		workers := make([]chan interface{}, 0, len(tt.args.results))
+		for _, result := range tt.args.results {
+			var wg sync.WaitGroup
+			wg.Add(len(result))
+
+			input := make(chan interface{})
+			for _, subresult := range result {
+				go func(val interface{}) {
+					defer wg.Done()
+					input <- val
+				}(subresult)
 			}
+
+			workers = append(workers, input)
+
+			go func() {
+				wg.Wait()
+				close(input)
+			}()
+		}
+
+		// Set up the context.
+		ctx, cancel := context.WithCancel(context.Background())
+		tt.args.ctx = ctx
+
+		t.Run(tt.name, func(t *testing.T) {
+			count := 0
+			results := merge(tt.args.ctx, workers, newFakeWaitGroup())
+			if tt.cancel {
+				cancel()
+				assert.Empty(t, results)
+			} else {
+				for result := range results {
+					assert.Contains(t, tt.want, result)
+					count++
+				}
+			}
+			assert.Equal(t, len(tt.want), count)
 		})
 	}
+}
+
+func newFakeWaitGroup() IWaitGroup {
+	var fwg FakeWaitGroup
+	fwg.wg = sync.WaitGroup{}
+	return &fwg
+}
+
+type IWaitGroupCallTracker struct {
+	addCount  int
+	doneCount int
+	waitCount int
+}
+
+type FakeWaitGroup struct {
+	wg sync.WaitGroup
+}
+
+func (fwg *FakeWaitGroup) Add(delta int) {
+	fmt.Println("fake add")
+	fwg.wg.Add(delta)
+}
+
+func (fwg *FakeWaitGroup) Done() {
+	fmt.Println("fake done")
+	fwg.wg.Done()
+}
+
+func (fwg *FakeWaitGroup) Wait() {
+	fmt.Println("fake wait")
+	fwg.wg.Wait()
 }

@@ -9,6 +9,14 @@ import (
 // All incoming tasks have to conform to this function type.
 type Task func() interface{}
 
+// IWaitGroup defines an interface for the sync.WaitGroup struct
+// allowing us to mock values for testing.
+type IWaitGroup interface {
+	Add(delta int)
+	Done()
+	Wait()
+}
+
 // TaskContext defines the context for task execution.
 type TaskContext struct {
 	Context       context.Context
@@ -40,7 +48,7 @@ func PerformTasks(taskContext *TaskContext, tasks []Task) chan interface{} {
 	}
 
 	// Merge results from all workers
-	out := merge(taskContext.Context, workers)
+	out := merge(taskContext.Context, workers, newWaitGroup())
 	return out
 }
 
@@ -69,12 +77,9 @@ func executeTask(task Task, buffer chan struct{}) interface{} {
 	return result
 }
 
-func merge(ctx context.Context, workers []chan interface{}) chan interface{} {
+func merge(ctx context.Context, workers []chan interface{}, wg IWaitGroup) chan interface{} {
 	// Merged channel with results
 	out := make(chan interface{})
-
-	// Synchronization over channels: do not close "out" before all tasks are completed
-	var wg sync.WaitGroup
 
 	// Define function which waits the result from worker channel
 	// and sends this result to the merged channel.
@@ -103,4 +108,8 @@ func merge(ctx context.Context, workers []chan interface{}) chan interface{} {
 	}()
 
 	return out
+}
+
+func newWaitGroup() IWaitGroup {
+	return new(sync.WaitGroup)
 }
